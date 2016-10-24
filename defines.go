@@ -7,13 +7,14 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/zhangpeihao/goamf"
-	"github.com/zhangpeihao/log"
 	"io"
 	"net"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zhangpeihao/goamf"
+	"github.com/zhangpeihao/log"
 )
 
 var DefaultObjectEncoding uint = amf.AMF0
@@ -583,10 +584,9 @@ func WriteToNetwork(w Writer, data []byte) (written int, err error) {
 }
 
 // Copy bytes to network
-func CopyNToNetwork(dst Writer, src Reader, n int64) (written int64, err error) {
+func CopyNToNetwork(dst Writer, src Reader, n int64, buf []byte) (written int64, err error) {
 	// return io.CopyN(dst, src, n)
-
-	buf := make([]byte, 4096)
+	// buf := make([]byte, 4096)
 	for written < n {
 		l := len(buf)
 		if d := n - written; d < int64(l) {

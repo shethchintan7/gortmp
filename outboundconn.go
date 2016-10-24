@@ -8,10 +8,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/zhangpeihao/goamf"
-	"github.com/zhangpeihao/log"
 	"net"
 	"time"
+
+	"github.com/zhangpeihao/goamf"
+	"github.com/zhangpeihao/log"
 )
 
 const (
@@ -92,7 +93,7 @@ func Dial(url string, handler OutboundConnHandler, maxChannelNumber int) (Outbou
 	}
 	br := bufio.NewReader(c)
 	bw := bufio.NewWriter(c)
-	timeout := time.Duration(10*time.Second)
+	timeout := time.Duration(10 * time.Second)
 	err = Handshake(c, br, bw, timeout)
 	//err = HandshakeSample(c, br, bw, timeout)
 	if err == nil {
@@ -106,7 +107,7 @@ func Dial(url string, handler OutboundConnHandler, maxChannelNumber int) (Outbou
 			transactions: make(map[uint32]string),
 			streams:      make(map[uint32]OutboundStream),
 		}
-		obConn.handler.OnStatus(obConn)
+		// obConn.handler.OnStatus(obConn)
 		obConn.conn = NewConn(c, br, bw, obConn, maxChannelNumber)
 		return obConn, nil
 	}

@@ -7,13 +7,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/zhangpeihao/goamf"
-	"github.com/zhangpeihao/log"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zhangpeihao/goamf"
+	"github.com/zhangpeihao/log"
 )
 
 // Conn
@@ -115,6 +116,9 @@ type conn struct {
 
 	// Error
 	err error
+
+	//buffer
+	buf []byte
 }
 
 // Create new connection
@@ -138,6 +142,7 @@ func NewConn(c net.Conn, br *bufio.Reader, bw *bufio.Writer, handler ConnHandler
 		outBandwidthLimit:           BINDWIDTH_LIMIT_DYNAMIC,
 		handler:                     handler,
 		mediaChunkStreamIDAllocator: make([]bool, maxChannelNumber),
+		buf: make([]byte, 4096),
 	}
 	// Create "Protocol control chunk stream"
 	conn.outChunkStreams[CS_ID_PROTOCOL_CONTROL] = NewOutboundChunkStream(CS_ID_PROTOCOL_CONTROL)
@@ -152,6 +157,7 @@ func NewConn(c net.Conn, br *bufio.Reader, bw *bufio.Writer, handler ConnHandler
 
 // Send high priority message in continuous chunks
 func (conn *conn) sendMessage(message *Message) {
+	// fmt.Println("sendMessage", count)
 	chunkStream, found := conn.outChunkStreams[message.ChunkStreamID]
 	if !found {
 		logger.ModulePrintf(logHandler, log.LOG_LEVEL_WARNING,
@@ -160,18 +166,20 @@ func (conn *conn) sendMessage(message *Message) {
 		return
 	}
 
-	//	message.Dump(">>>")
+	// message.Dump(">>>")
 	header := chunkStream.NewOutboundHeader(message)
 	_, err := header.Write(conn.bw)
 	if err != nil {
 		conn.error(err, "sendMessage write header")
 		return
 	}
-	//	header.Dump(">>>")
+	// header.Dump(">>>")
+	// fmt.Println(header)
+	// fmt.Println("conn.outChunkSize", conn.outChunkSize)
 	if header.MessageLength > conn.outChunkSize {
 		//		chunkStream.lastHeader = nil
 		// Split into some chunk
-		_, err = CopyNToNetwork(conn.bw, message.Buf, int64(conn.outChunkSize))
+		_, err = CopyNToNetwork(conn.bw, message.Buf, int64(conn.outChunkSize), conn.buf)
 		if err != nil {
 			conn.error(err, "sendMessage copy buffer")
 			return
@@ -185,14 +193,14 @@ func (conn *conn) sendMessage(message *Message) {
 				return
 			}
 			if remain > conn.outChunkSize {
-				_, err = CopyNToNetwork(conn.bw, message.Buf, int64(conn.outChunkSize))
+				_, err = CopyNToNetwork(conn.bw, message.Buf, int64(conn.outChunkSize), conn.buf)
 				if err != nil {
 					conn.error(err, "sendMessage copy split buffer 1")
 					return
 				}
 				remain -= conn.outChunkSize
 			} else {
-				_, err = CopyNToNetwork(conn.bw, message.Buf, int64(remain))
+				_, err = CopyNToNetwork(conn.bw, message.Buf, int64(remain), conn.buf)
 				if err != nil {
 					conn.error(err, "sendMessage copy split buffer 2")
 					return
@@ -201,7 +209,7 @@ func (conn *conn) sendMessage(message *Message) {
 			}
 		}
 	} else {
-		_, err = CopyNToNetwork(conn.bw, message.Buf, int64(header.MessageLength))
+		_, err = CopyNToNetwork(conn.bw, message.Buf, int64(header.MessageLength), conn.buf)
 		if err != nil {
 			conn.error(err, "sendMessage copy buffer")
 			return
@@ -254,6 +262,7 @@ func (conn *conn) sendLoop() {
 		case <-time.After(time.Second):
 			// Check close
 		}
+		// fmt.Println(len(conn.highPriorityMessageQueue), len(conn.middlePriorityMessageQueue), len(conn.lowPriorityMessageQueue))
 	}
 }
 
@@ -513,7 +522,7 @@ func (conn *conn) InboundChunkStream(id uint32) (chunkStream *InboundChunkStream
 
 func (conn *conn) CloseMediaChunkStream(id uint32) {
 	// and the id is not the index of Allocator slice
-	index := (id - 2) / 6 - 1
+	index := (id-2)/6 - 1
 	conn.mediaChunkStreamIDAllocatorLocker.Lock()
 	conn.mediaChunkStreamIDAllocator[index] = false
 	conn.mediaChunkStreamIDAllocatorLocker.Unlock()
