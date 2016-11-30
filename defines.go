@@ -566,6 +566,7 @@ func WriteToNetwork(w Writer, data []byte) (written int, err error) {
 			continue
 		}
 		netErr, ok := err.(net.Error)
+		fmt.Println("neterr", netErr)
 		if !ok {
 			return
 		}

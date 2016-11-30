@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -35,6 +36,7 @@ type Conn interface {
 	SetPeerBandwidth(peerBandwidth uint32, limitType byte)
 	SetChunkSize(chunkSize uint32)
 	SendUserControlMessage(eventId uint16)
+	GetBufferSize() (int, int)
 }
 
 // Connection handler
@@ -158,6 +160,7 @@ func NewConn(c net.Conn, br *bufio.Reader, bw *bufio.Writer, handler ConnHandler
 // Send high priority message in continuous chunks
 func (conn *conn) sendMessage(message *Message) {
 	// fmt.Println("sendMessage", count)
+	// fmt.Println("sendMessage1")
 	chunkStream, found := conn.outChunkStreams[message.ChunkStreamID]
 	if !found {
 		logger.ModulePrintf(logHandler, log.LOG_LEVEL_WARNING,
@@ -167,12 +170,14 @@ func (conn *conn) sendMessage(message *Message) {
 	}
 
 	// message.Dump(">>>")
+	// fmt.Println("sendMessage2")
 	header := chunkStream.NewOutboundHeader(message)
 	_, err := header.Write(conn.bw)
 	if err != nil {
 		conn.error(err, "sendMessage write header")
 		return
 	}
+	// fmt.Println("sendMessage3")
 	// header.Dump(">>>")
 	// fmt.Println(header)
 	// fmt.Println("conn.outChunkSize", conn.outChunkSize)
@@ -184,6 +189,7 @@ func (conn *conn) sendMessage(message *Message) {
 			conn.error(err, "sendMessage copy buffer")
 			return
 		}
+		// fmt.Println("sendMessage4")
 		remain := header.MessageLength - conn.outChunkSize
 		// Type 3 chunk
 		for {
@@ -192,6 +198,7 @@ func (conn *conn) sendMessage(message *Message) {
 				conn.error(err, "sendMessage Type 3 chunk header")
 				return
 			}
+			// fmt.Println("sendMessage5")
 			if remain > conn.outChunkSize {
 				_, err = CopyNToNetwork(conn.bw, message.Buf, int64(conn.outChunkSize), conn.buf)
 				if err != nil {
@@ -200,6 +207,7 @@ func (conn *conn) sendMessage(message *Message) {
 				}
 				remain -= conn.outChunkSize
 			} else {
+				// fmt.Println("sendMessage6")
 				_, err = CopyNToNetwork(conn.bw, message.Buf, int64(remain), conn.buf)
 				if err != nil {
 					conn.error(err, "sendMessage copy split buffer 2")
@@ -207,19 +215,23 @@ func (conn *conn) sendMessage(message *Message) {
 				}
 				break
 			}
+			// fmt.Println("sendMessage7")
 		}
 	} else {
+		// fmt.Println("sendMessage8")
 		_, err = CopyNToNetwork(conn.bw, message.Buf, int64(header.MessageLength), conn.buf)
 		if err != nil {
 			conn.error(err, "sendMessage copy buffer")
 			return
 		}
 	}
+	// fmt.Println("sendMessage9")
 	err = FlushToNetwork(conn.bw)
 	if err != nil {
 		conn.error(err, "sendMessage Flush 3")
 		return
 	}
+	// fmt.Println("sendMessage10")
 	if message.ChunkStreamID == CS_ID_PROTOCOL_CONTROL &&
 		message.Type == SET_CHUNK_SIZE &&
 		conn.outChunkSizeTemp != 0 {
@@ -227,6 +239,7 @@ func (conn *conn) sendMessage(message *Message) {
 		conn.outChunkSize = conn.outChunkSizeTemp
 		conn.outChunkSizeTemp = 0
 	}
+	// fmt.Println("sendMessage11")
 }
 
 func (conn *conn) checkAndSendHighPriorityMessage() {
@@ -246,6 +259,7 @@ func (conn *conn) sendLoop() {
 		}
 		conn.Close()
 	}()
+	// go conn.PrintLen()
 	for !conn.closed {
 		select {
 		case message := <-conn.highPriorityMessageQueue:
@@ -262,8 +276,18 @@ func (conn *conn) sendLoop() {
 		case <-time.After(time.Second):
 			// Check close
 		}
-		// fmt.Println(len(conn.highPriorityMessageQueue), len(conn.middlePriorityMessageQueue), len(conn.lowPriorityMessageQueue))
 	}
+}
+
+func (conn *conn) PrintLen() {
+	for {
+		fmt.Println(len(conn.highPriorityMessageQueue), len(conn.middlePriorityMessageQueue), len(conn.lowPriorityMessageQueue))
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (conn *conn) GetBufferSize() (int, int) {
+	return len(conn.highPriorityMessageQueue), cap(conn.highPriorityMessageQueue)
 }
 
 // read loop
